@@ -73,3 +73,9 @@ body {
   text-underline-offset: 4px;
   text-decoration-color: var(--orange);
 }
+
+/* Marching dashes, for gradient arrows on the training slide. */
+@keyframes march {
+  to { stroke-dashoffset: -26; }
+}
+.march path { animation: march 0.8s linear infinite; }

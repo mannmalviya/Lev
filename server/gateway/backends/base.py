@@ -22,7 +22,7 @@ class Choice:
 
 class Backend(Protocol):
     id: str
-    kind: str  # "fake" | "torch" | "clm"
+    kind: str  # "fake" | "torch" | "clm" | "llamacpp"
     params: str | None
     description: str
 

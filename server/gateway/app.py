@@ -7,7 +7,8 @@ Env:
   RATE_LIMIT_RPS    requests per second per client IP (default 30, burst 2x)
   GATEWAY_DISABLED  set to 1 to turn every request into 503 (kill switch)
   BASELINE          set to 1 to load the Qwen text baseline (needs `uv sync --extra baseline`)
-  LEV               set to 1 to load Lev, our trained CLM head on Qwen3-8B (same extra)
+  LLAMA_BASELINE    set to 1 to add Qwen3.6-35B-A3B via a llama.cpp server (start-llama-baseline.sh, LLAMA_URL)
+  LEV               set to 1 to load Lev (Flappy v2 + Dino heads, routed by game) on Qwen3-8B (same extra)
 """
 
 import json
@@ -33,10 +34,18 @@ def load_backends() -> dict[str, Backend]:
         from .backends.baseline import BaselineBackend
 
         backends.append(BaselineBackend())
-    if os.environ.get("LEV") == "1":
-        from .backends.lev import LevBackend
+    if os.environ.get("LLAMA_BASELINE") == "1":
+        from .backends.llamacpp import LlamaCppBackend
 
-        backends.append(LevBackend())
+        backends.append(LlamaCppBackend())
+    if os.environ.get("LEV") == "1":
+        from .backends.lev import LevBackend, LevRouter
+
+        # "ours-lev" first: the web app's "Ours" lane picks the first "ours" model.
+        flappy = LevBackend("ours-lev-v2", "~/models/lev-v2/dagger_lev_flappy_head_v2.pt", state_only=True)
+        dino = LevBackend("ours-lev-dino", "~/models/lev-dino/lev_dino_head.pt", state_only=True, key_actions=True)
+        backends.append(LevRouter("ours-lev", {("flap", "wait"): flappy, ("jump", "duck", "run"): dino}))
+        backends += [flappy, dino, LevBackend("ours-lev-v1", "~/models/lev/text_state_flappy_head.pt")]
     return {b.id: b for b in backends}
 
 

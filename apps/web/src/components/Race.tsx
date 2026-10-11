@@ -3,7 +3,7 @@
 import { GAMES, PILOTS, type DinoState, type FlappyState, type Game, type GameId } from "@s1/engine";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Lane, type Control, type Difficulty, type Driver, type LaneStats, type Mode } from "@/lib/lane";
-import { BASELINE_MODEL, listModels, type ModelInfo } from "@/lib/models";
+import { BASELINE_MODEL, listModels } from "@/lib/models";
 import { drawDino, loadDinoSprite } from "@/lib/render-dino";
 import { drawFlappy, loadFlappyImages, type FlappyImages } from "@/lib/render-flappy";
 
@@ -14,17 +14,19 @@ type LaneKey = "jev" | "baseline" | "ours" | "you";
 const LANE_META: Record<LaneKey, { name: string; color: string; fill: string }> = {
   jev: { name: "Jev", color: "var(--purple)", fill: "var(--fill-purple)" },
   baseline: { name: "Baseline LLM", color: "var(--blue)", fill: "var(--fill-blue)" },
-  ours: { name: "Ours", color: "var(--orange)", fill: "var(--fill-orange)" },
+  ours: { name: "Lev", color: "var(--orange)", fill: "var(--fill-orange)" },
   you: { name: "You", color: "var(--green)", fill: "var(--fill-green)" },
 };
+/** Our lane always runs Lev: the gateway routes each game to its own head. */
+const LEV_MODEL = "ours-lev";
 const ACTION_COLORS = ["var(--orange)", "var(--blue)", "var(--purple)"];
 
 type Phase = "idle" | "countdown" | "running" | "finished";
 
-function driverFor(key: LaneKey, oursModel: string): Driver {
+function driverFor(key: LaneKey): Driver {
   if (key === "jev") return { kind: "model", target: { via: "jev" } };
   if (key === "baseline") return { kind: "model", target: { via: "gateway", model: BASELINE_MODEL } };
-  if (key === "ours") return { kind: "model", target: { via: "gateway", model: oursModel } };
+  if (key === "ours") return { kind: "model", target: { via: "gateway", model: LEV_MODEL } };
   return { kind: "human" };
 }
 
@@ -35,19 +37,17 @@ export default function Race({ gameId, title }: { gameId: GameId; title: string 
 
   const [mode, setMode] = useState<Mode>("lockstep");
   const hasPilot = gameId in PILOTS;
-  const [control, setControl] = useState<Control>("direct");
+  const [control, setControl] = useState<Control>(hasPilot ? "intent" : "direct");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [seed] = useState(42);
   const [withHuman, setWithHuman] = useState(false);
-  const [models, setModels] = useState<ModelInfo[] | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
-  const [oursModel, setOursModel] = useState("fake");
   const [phase, setPhase] = useState<Phase>("idle");
   const [countdown, setCountdown] = useState(3);
   const [elapsed, setElapsed] = useState(0);
   const [stats, setStats] = useState<Partial<Record<LaneKey, LaneStats>>>({});
 
-  const keys: LaneKey[] = withHuman ? ["jev", "baseline", "ours", "you"] : ["jev", "baseline", "ours"];
+  const keys: LaneKey[] = withHuman ? ["jev", "ours", "baseline", "you"] : ["jev", "ours", "baseline"];
   const lanes = useRef<Partial<Record<LaneKey, Lane>>>({});
   const canvases = useRef<Partial<Record<LaneKey, HTMLCanvasElement | null>>>({});
   const phaseRef = useRef<Phase>("idle");
@@ -56,25 +56,18 @@ export default function Race({ gameId, title }: { gameId: GameId; title: string 
   const startedAt = useRef(0);
   const countdownId = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
-  // Model list for the "Ours" dropdown.
+  // Only to show when the GX10 gateway is unreachable.
   useEffect(() => {
-    listModels()
-      .then((m) => {
-        setModels(m);
-        const ours = m.filter((x) => x.id !== BASELINE_MODEL);
-        const best = ours.find((x) => x.id.startsWith("ours")) ?? ours[0];
-        if (best) setOursModel(best.id);
-      })
-      .catch((e) => setModelsError(String(e.message ?? e)));
+    listModels().catch((e) => setModelsError(String(e.message ?? e)));
   }, []);
 
   const buildLanes = useCallback(() => {
     for (const l of Object.values(lanes.current)) l?.stop();
-    lanes.current = Object.fromEntries(keys.map((k) => [k, new Lane(game, driverFor(k, oursModel), seed, control)]));
+    lanes.current = Object.fromEntries(keys.map((k) => [k, new Lane(game, driverFor(k), seed, control)]));
     setStats(Object.fromEntries(keys.map((k) => [k, { ...lanes.current[k]!.stats }])));
     setElapsed(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, oursModel, seed, withHuman, control]);
+  }, [game, seed, withHuman, control]);
 
   // Fresh lanes whenever the setup changes while not racing.
   useEffect(() => {
@@ -238,7 +231,6 @@ export default function Race({ gameId, title }: { gameId: GameId; title: string 
       </div>
 
       <p className="-mt-3 text-sm text-muted">
-        {mode === "lockstep" && "Lockstep: each game waits for its own model. Faster models move ahead; every model gets the same frames."}
         {withHuman && (gameId === "flappy" ? " You: Space / click / tap to flap." : " You: Space or ↑ to jump, ↓ to duck. On a phone, tap top half to jump, bottom half to duck.")}
         {modelsError && <span className="text-red"> · GX10 gateway unreachable ({modelsError}).</span>}
       </p>
@@ -267,9 +259,12 @@ export default function Race({ gameId, title }: { gameId: GameId; title: string 
                 height={gameId === "flappy" ? game.height : game.height * 2}
                 onPointerDown={(e) => onCanvasPointer(k, e)}
                 onPointerUp={() => k === "you" && gameId === "dino" && lanes.current.you?.release()}
-                className={`pixelated block touch-none border-2 w-full md:w-auto ${vertical ? "md:h-[clamp(300px,calc(100dvh-330px),768px)]" : "md:h-[clamp(110px,calc((100dvh-175px-var(--lanes)*57px)/var(--lanes)),265px)]"}`}
-                style={{ borderColor: LANE_META[k].color }}
+                className={`pixelated block touch-none ${k === "ours" ? "border-4" : "border-2"} w-full md:w-auto ${vertical ? "md:h-[clamp(300px,calc(100dvh-330px),768px)]" : "md:h-[clamp(110px,calc((100dvh-175px-var(--lanes)*57px)/var(--lanes)),265px)]"}`}
+                style={{ borderColor: LANE_META[k].color, boxShadow: k === "ours" ? "0 0 18px var(--orange)" : undefined }}
               />
+              {k === "ours" && (
+                <span className="sketch absolute -top-3 left-3 bg-orange px-2 font-hand text-sm text-white">OURS</span>
+              )}
               {phase === "countdown" && (
                 <div className="absolute inset-0 grid place-items-center font-hand text-6xl text-white" style={{ textShadow: "2px 2px 0 #000" }}>
                   {countdown}
@@ -281,7 +276,7 @@ export default function Race({ gameId, title }: { gameId: GameId; title: string 
             </div>
           );
           const header = (
-            <LaneHeader k={k} stats={stats[k]} models={models} oursModel={oursModel} onOursModel={setOursModel} disabled={busy} />
+            <LaneHeader k={k} stats={stats[k]} />
           );
           const panel =
             k === "you" ? (
@@ -333,31 +328,16 @@ function Segmented({ value, options, onChange, disabled }: { value: string; opti
   );
 }
 
-function LaneHeader(props: {
-  k: LaneKey;
-  stats?: LaneStats;
-  models: ModelInfo[] | null;
-  oursModel: string;
-  onOursModel: (id: string) => void;
-  disabled: boolean;
-}) {
-  const { k, stats: s, models } = props;
+function LaneHeader({ k, stats: s }: { k: LaneKey; stats?: LaneStats }) {
   const meta = LANE_META[k];
   const status = s?.status ?? "ready";
-  const choices = (models ?? []).filter((m) => m.id !== BASELINE_MODEL);
   return (
     <div className="flex items-center justify-between gap-3 text-sm">
       <div className="flex items-center gap-3 font-hand text-lg">
-        {k === "ours" ? (
-          <select value={props.oursModel} disabled={props.disabled || choices.length === 0}
-            onChange={(e) => props.onOursModel(e.target.value)}
-            className="sketch-soft max-w-[12rem] bg-white px-1 py-0.5 text-base" style={{ color: meta.color }}>
-            {choices.length === 0 && <option value={props.oursModel}>{props.oursModel}</option>}
-            {choices.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
-          </select>
-        ) : (
-          <span style={{ color: meta.color }}>{meta.name}</span>
-        )}
+        <span style={{ color: meta.color }}>
+          {meta.name}
+          {k === "ours" && <span className="text-sm text-muted"> · our model, runs on GX10</span>}
+        </span>
         <span className="font-serif text-base">
           Score <b className="tabular-nums">{s?.score ?? 0}</b>
         </span>

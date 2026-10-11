@@ -1,6 +1,7 @@
 """Score Lev against the expert bot's labels: python eval_lev.py eval-flappy.jsonl"""
 
 import json
+import os
 import random
 import sys
 import time
@@ -10,7 +11,8 @@ from gateway.backends.lev import LevBackend
 rows = [json.loads(line) for line in open(sys.argv[1])]
 random.Random(0).shuffle(rows)
 rows = rows[:300]
-lev = LevBackend()
+# LEV_HEAD picks the head (default v1); LEV_STATE_ONLY=1 for heads trained without instructions (v2).
+lev = LevBackend("eval", os.environ.get("LEV_HEAD", "~/models/lev/text_state_flappy_head.pt"), os.environ.get("LEV_STATE_ONLY") == "1")
 q = rows[0]["request"]["questions"]["action"]
 
 safe = decisive = decisive_ok = label_ok = 0
