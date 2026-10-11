@@ -1,0 +1,11 @@
+{
+  "name": "system1-playground",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "test": "pnpm --filter @s1/engine test",
+    "gen-data": "pnpm --filter gen-data start"
+  },
+  "packageManager": "pnpm@10.20.0"
+}

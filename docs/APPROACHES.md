@@ -31,5 +31,5 @@
 
 4. **Vision**
    - Trying to make a System 1 model that has vision.
-  
+   - Qwen models with vision can detect things in an image but struggle very heavily with spatial understanding, so they can tell if there's a pipe (in the case of flappy bird) but it has no way of knowing where the pipe or the bird is just from images.
 

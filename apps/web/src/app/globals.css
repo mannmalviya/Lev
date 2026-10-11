@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+/* Look of https://jev-to-kernels-by-hand.vercel.app/: Tufte paper, ET Book body,
+   Virgil (Excalidraw) hand lettering, Excalidraw palette. Light mode only. */
+:root {
+  --paper: #fffff8;
+  --ink: #1e1e1e;
+  --muted: #495057;
+  --faint: #adb5bd;
+  --orange: #e8590c;
+  --blue: #1971c2;
+  --purple: #9c36b5;
+  --green: #2f9e44;
+  --red: #e03131;
+  --fill-orange: #ffe8cc;
+  --fill-blue: #d0ebff;
+  --fill-purple: #f3d9fa;
+  --fill-green: #d3f9d8;
+  --fill-gray: #f1f3f5;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-orange: var(--orange);
+  --color-blue: var(--blue);
+  --color-purple: var(--purple);
+  --color-green: var(--green);
+  --color-red: var(--red);
+  --color-fill-orange: var(--fill-orange);
+  --color-fill-blue: var(--fill-blue);
+  --color-fill-purple: var(--fill-purple);
+  --color-fill-green: var(--fill-green);
+  --color-fill-gray: var(--fill-gray);
+  --font-serif: var(--font-etbook), Georgia, ui-serif, serif;
+  --font-hand: var(--font-virgil), "Comic Sans MS", cursive;
+}
+
+html {
+  background: var(--paper);
+  color-scheme: light;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  line-height: 1.55;
+}
+
+/* Hand-drawn box: uneven radii make a sketchy outline. */
+.sketch {
+  border: 2px solid var(--ink);
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+}
+
+.sketch-soft {
+  border: 1.5px solid var(--muted);
+  border-radius: 15px 225px 15px 255px / 255px 15px 225px 15px;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+}
+
+/* Sketchy underline for links. */
+.ink-link {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+  text-decoration-color: var(--orange);
+}

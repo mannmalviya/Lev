@@ -1,0 +1,31 @@
+[project]
+name = "s1-gateway"
+version = "0.1.0"
+description = "System 1 gateway: serves POST /v1/systemone for our models (docs/API.md)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+]
+
+[project.optional-dependencies]
+# The text baseline (Qwen3-4B). Install on the GX10 with: uv sync --extra baseline
+baseline = ["torch>=2.5", "transformers>=4.51", "accelerate>=1.0"]
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+# torch with CUDA 13.0 (the GX10's GB10 driver supports CUDA 13.0).
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }

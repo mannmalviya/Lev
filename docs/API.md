@@ -1,10 +1,10 @@
 # System 1 API Spec
 
-This is the API that every model behind the System 1 Playground must serve. That includes our models, the baseline, CLM, and the Jev proxy.
+This is the API that every model behind the System 1 Playground must serve. That includes our models, the baseline, and CLM. The Jev proxy on Vercel uses the same format.
 
 It follows Jev's System One wire format, as Kev documents it (https://github.com/jaredpalmer/kev). Kev, Decider, Laya and Von use the same format. Field names below match that format, except where a section says **(ours)**.
 
-> ⚠️ This spec is based on Kev's README. We could not open the TypeSafe docs directly. Before the demo, compare it with one real Jev response.
+> ✅ Checked against the live TypeSafe docs (https://docs.typesafe.ai/api.md) on 2026-10-10. Jev's real endpoint is `POST https://api.typesafe.ai/v1/systemone` with `"model": "jev-latest"`. Jev's response has no `latency_ms`; our proxy adds it.
 
 ---
 
@@ -12,13 +12,20 @@ It follows Jev's System One wire format, as Kev documents it (https://github.com
 
 ```
 Browser (Vercel site)
-   │  POST /v1/systemone   (HTTPS, Bearer token)
-   ▼
-Gateway on GX10 :8000   (FastAPI; checks the token and CORS, routes by "model")
-   ├── PyTorch backends: baseline, LoRA + head
-   ├── CLM backend:      clm-serve + vLLM pooling
-   └── Jev proxy:        forwards to TypeSafe with our key
+   │
+   ├── POST <GX10 URL>/v1/systemone   (HTTPS via Tailscale Funnel, Bearer token)
+   │     ▼
+   │   Gateway on GX10 :8000   (FastAPI; checks the token and CORS, routes by "model")
+   │     ├── fake backend:     random probabilities, for testing
+   │     ├── PyTorch backends: baseline, LoRA + head
+   │     └── CLM backend:      clm-serve + vLLM pooling
+   │
+   └── POST /api/jev   (Vercel route, same format)
+         ▼
+       TypeSafe API, with TYPESAFE_API_KEY from the Vercel env
 ```
+
+The Jev proxy lives on Vercel, not on the GX10. So Jev still works when the GX10 is offline, and Jev's latency does not include our tunnel.
 
 - There is one public endpoint. The `model` field picks the backend.
 - Every backend returns the same response shape.
@@ -191,10 +198,9 @@ All questions have `type` and `instructions`. The `criteria` field depends on th
 {
   "models": [
     { "id": "fake",           "backend": "fake",  "params": null,   "description": "Random probabilities, for frontend testing" },
-    { "id": "baseline-qwen3-4b", "backend": "torch", "params": "4B", "description": "Zero-shot logit readout, no training" },
+    { "id": "baseline-qwen3-4b", "backend": "torch", "params": "4B", "description": "Qwen3-4B, thinking off, writes a short text answer" },
     { "id": "ours-lora-4b",   "backend": "torch", "params": "4B",   "description": "LoRA + choice head, trained on game data" },
-    { "id": "clm-8b",         "backend": "clm",   "params": "8B",   "description": "Contrastive dual encoder (CLM v0.1)" },
-    { "id": "jev",            "backend": "jev",   "params": null,   "description": "TypeSafe Jev (hosted, proxied)" }
+    { "id": "clm-8b",         "backend": "clm",   "params": "8B",   "description": "Contrastive dual encoder (CLM v0.1)" }
   ]
 }
 ```
@@ -209,16 +215,24 @@ The API is the same for every model. Each backend has an adapter that turns `sta
 
 ### Python interface that each backend implements
 
+See `server/gateway/backends/base.py`. The gateway turns every question type into one choice, so a backend only implements `choose`:
+
 ```python
 class Backend(Protocol):
-    id: str
+    id: str            # the model id in /v1/models
+    kind: str          # "fake" | "torch" | "clm"
+    params: str | None
+    description: str
 
-    def decide(self, state: str, questions: dict[str, dict]) -> dict[str, dict]:
-        """Return the `answers` object (section 4) for these questions.
-        state is already a string. questions is the validated questions object."""
+    def choose(self, state: str, instructions: str, options: dict[str, str]) -> Choice:
+        """Return Choice(probabilities={option: p, ...}) with every option, adding up to 1."""
 ```
 
-The gateway does the validation, the auth, the timing (`latency_ms`) and the `usage`. Backends return only `answers`. They may also return the token counts.
+- `choice` → the options in `criteria`.
+- `noul` → options `yes` / `no`. The gateway returns P(yes).
+- `score` → one option per level (`"0"`, `"1"`, …). The gateway computes `score` = the expected index.
+
+The gateway does the validation, the auth, the timing (`latency_ms`), the `usage`, and the answer shapes. To add a model, write a backend and register it in `load_backends()` in `server/gateway/app.py`.
 
 ### One-input models (baseline, LoRA + head)
 
@@ -236,7 +250,8 @@ What should the bird do now?
 </question>
 ```
 
-- **Baseline (no training):** label the options `A`, `B`, `C`… Read the next-token logits for those letters at the answer position. Take a softmax over **only** the valid letters.
+- **Baseline (no training, text answer):** Qwen3-4B with thinking off. The prompt asks for a JSON answer such as `{"action": "flap"}`. Generation is greedy and short. `probabilities` come from the logprobs of the first token of each option id at the answer position. If the text does not parse, return the safe option (`wait` / `run` = the last option in `criteria`) with `"parse_error": true` **(ours)**.
+- **Logit readout (approach 1 in APPROACHES.md, later):** label the options `A`, `B`, `C`… Read the next-token logits for those letters at the answer position. Take a softmax over **only** the valid letters.
 - **LoRA + head:** the head scores the hidden state at each `</opt>` against the hidden state at `<decide>`. Then it takes a softmax over the options (Kev style).
 - **Many questions about the same state:** encode the state once and reuse its KV cache for each question.
 - `noul` → a choice between `yes` and `no`. Return P(yes).
@@ -256,9 +271,9 @@ CLM never sees one joined text. The adapter splits the request:
 - `noul` → actions `"yes"` and `"no"`.
 - `score` → one action for each level label.
 
-### Jev proxy
+### Jev proxy (Vercel route `/api/jev`)
 
-- Forward the request body to TypeSafe unchanged. Swap only `model` to Jev's model name.
+- Forward the request body to `https://api.typesafe.ai/v1/systemone` unchanged. Set `model` to `"jev-latest"`.
 - Add our TypeSafe key on the server. **The key must never go to the browser.**
 - Pass the response through. Overwrite `latency_ms` with our measured proxy time, and keep Jev's value in `upstream_latency_ms` **(ours)**.
 
@@ -277,6 +292,7 @@ All errors use this shape:
 | 401 | `unauthorized` | A missing or wrong bearer token |
 | 404 | `unknown_model` | The `model` is not in `/v1/models` |
 | 413 | `state_too_long` | The state is longer than the model's context limit |
+| 429 | `rate_limited` | More than `RATE_LIMIT_RPS` requests per second from one IP **(ours)** |
 | 503 | `backend_unavailable` | The backend is down or still loading |
 | 504 | `backend_timeout` | No answer within 2 s **(ours)** |
 
@@ -296,7 +312,9 @@ All errors use this shape:
 
 Example Dino state:
 ```
-dino_y=0 dino_vy=0 speed=8 obstacle=cactus_small obstacle_x=140 obstacle_w=17 obstacle_h=35 next=bird next_x=420 next_y=50
+speed=8.0 dino=running dino_height=0 dino_up_speed=0
+obs1=cactus_small obs1_dx=140 obs1_width=17 obs1_height=35 obs1_bottom=0 frames_to_hit=17
+obs2=pterodactyl obs2_dx=420 obs2_width=46 obs2_bottom=50
 ```
 
 Tetris note: score each legal placement as an option, with a short description of the result, for example `"lines=1 holes=0 height=6 bumpiness=3"`. This keeps the decision to one step.
