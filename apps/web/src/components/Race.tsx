@@ -2,6 +2,7 @@
 
 import { GAMES, PILOTS, type DinoState, type FlappyState, type Game, type GameId } from "@s1/engine";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Lane, type Control, type Difficulty, type Driver, type LaneStats, type Mode } from "@/lib/lane";
 import { BASELINE_MODEL, listModels } from "@/lib/models";
 import { drawDino, loadDinoSprite } from "@/lib/render-dino";
@@ -42,6 +43,7 @@ export default function Race({ gameId, title }: { gameId: GameId; title: string 
   const [seed] = useState(42);
   const [withHuman, setWithHuman] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [showOffline, setShowOffline] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [countdown, setCountdown] = useState(3);
   const [elapsed, setElapsed] = useState(0);
@@ -60,6 +62,9 @@ export default function Race({ gameId, title }: { gameId: GameId; title: string 
   useEffect(() => {
     listModels().catch((e) => setModelsError(String(e.message ?? e)));
   }, []);
+
+  // Set after mount: the notice portals into document.body, which doesn't exist on the server.
+  useEffect(() => setShowOffline(true), []);
 
   const buildLanes = useCallback(() => {
     for (const l of Object.values(lanes.current)) l?.stop();
@@ -197,6 +202,8 @@ export default function Race({ gameId, title }: { gameId: GameId; title: string 
   return (
     // Wider than the text column, so the game frames can be big.
     <div className="relative left-1/2 w-[min(calc(100vw-2rem),1500px)] -translate-x-1/2 space-y-4" style={{ "--lanes": keys.length } as React.CSSProperties}>
+      {showOffline && <OfflineNotice onClose={() => setShowOffline(false)} />}
+
       {/* Controls */}
       <div className="sketch bg-white/60 px-4 py-2 flex flex-wrap items-end gap-x-5 gap-y-2 font-hand text-base">
         <h1 className="mr-2 self-center font-hand text-3xl">{title}</h1>
@@ -303,6 +310,31 @@ export default function Race({ gameId, title }: { gameId: GameId; title: string 
         })}
       </div>
     </div>
+  );
+}
+
+/** The GX10 was powered down after the hackathon, so Lev and the baseline lanes are offline. */
+function OfflineNotice({ onClose }: { onClose: () => void }) {
+  // Portal to <body>: the race wrapper's transform would otherwise trap `fixed` inside it.
+  return createPortal(
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="offline-title"
+        className="sketch w-full max-w-3xl space-y-3 bg-paper p-5" onClick={(e) => e.stopPropagation()}>
+        <h2 id="offline-title" className="font-hand text-3xl text-red">The GX10 is offline</h2>
+        <p className="font-serif">
+          Lev and the baseline LLM ran on our Asus GX10. We powered it down after the hackathon, so those lanes show
+          “offline”. Jev runs on TypeSafe, so its lane still works.
+        </p>
+        <img src="/architecture.png" alt="Architecture: Lev runs on the Asus GX10, Jev runs on TypeSafe, and the game engine and frontend are hosted on Vercel."
+          className="w-full border border-faint bg-white" />
+        <div className="flex justify-end">
+          <button onClick={onClose} className="sketch bg-fill-orange px-5 py-1 font-hand text-lg hover:bg-orange hover:text-white">
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

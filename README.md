@@ -1,7 +1,49 @@
+<p align="center">
+  <img src="docs/images/lev-title.png" alt="Lev" width="520">
+</p>
+
+<h3 align="center">Turn any open-weight model into a Jev-style System 1 model.</h3>
+
+<p align="center">
+  <a href="https://lev-self.vercel.app/"><b>▶ Live demo</b></a> ·
+  <a href="https://huggingface.co/thomasliao/Lev"><b>🤗 Model on Hugging Face</b></a> ·
+  <a href="docs/PLAN.md">Plan</a> ·
+  <a href="docs/API.md">API</a>
+</p>
+
 # System 1 Playground
 
 Small local System 1 models vs Jev vs a text LLM, racing in Flappy Bird and Chrome Dino.
-Plan: `docs/PLAN.md`. API: `docs/API.md`.
+
+| Flappy Bird | Chrome Dino |
+| --- | --- |
+| ![Flappy Bird race](docs/images/playground-flappy.gif) | ![Dino race](docs/images/playground-dino.gif) |
+
+![Three models race in Flappy Bird](docs/images/race-flappy.png)
+
+## How it works
+
+The game engine sends the game state to each model. Each model sends back an action.
+Lev runs locally on an Asus GX10. Jev runs on TypeSafe. The site is Next.js on Vercel.
+
+![Architecture](docs/images/architecture.png)
+
+## How we built Lev
+
+We keep a big open-weight LLM frozen. We swap its next-word layer for a small trained decision head.
+The head only scores the allowed actions.
+
+![Swap the last layer](docs/images/lev-swap-head.png)
+
+The actions are embedded once and cached. Each decision only runs the state through the model.
+
+![Actions run once, only the state runs live](docs/images/lev-cached-actions.png)
+
+Backprop trains only the heads. The LLM gets no gradient.
+
+![Training the heads](docs/images/lev-training.png)
+
+## Code layout
 
 ```
 packages/engine/   game engines (Flappy Bird, Dino), state text, questions, expert bot
